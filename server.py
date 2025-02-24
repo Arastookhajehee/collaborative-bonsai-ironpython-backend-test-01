@@ -623,40 +623,29 @@ try:
                     if not register:
                         # get many possible solutions
                         # a range between -2.50 and 2.50
-                        option_count = 4
-                        options = []
-                        for i in range(option_count):
-                            shift_ab = -2.50 + 5.00 / option_count * i
-                            for i in range(option_count):
-                                shift_a = -0.50 + 1.00 / option_count * i
-                                for i in range(option_count):
-                                    shift_b = -0.50 + 1.00 / option_count * i
-                                    
-                                    plane_c, plane_d = process_bridge(
-                                        data["plane-01"],
-                                        data["plane-02"],
-                                        shift_ab,
-                                        shift_a,
-                                        shift_b,
-                                        0,
+                        plane_c, plane_d = process_bridge(
+                                        data["plane_01"],
+                                        data["plane_02"],
+                                        data["shift_ab"],
+                                        data["shift_a"],
+                                        data["shift_b"],
+                                        data["browse"],
                                         data["only_valid"]
                                         )
-                                    option = {
-                                        "plane_01": csv_from_plane(plane_c),
-                                        "plane_02": csv_from_plane(plane_d),
-                                        "shift_ab": shift_ab,
-                                        "shift_a": shift_a,
-                                        "shift_b": shift_b
-                                    }
-                                    options.append(option)
-                        result ={
-                            "status": "success",
-                            "options": options,
-                            "register": False,
-                            "preivew": True
-                        }
                         
-                        response_json = json.dumps(result)
+                        plane_c_CSV = csv_from_plane(plane_c)
+                        plane_d_CSV = csv_from_plane(plane_d)
+
+                        data["plane_03"] = plane_c_CSV
+                        data["plane_04"] = plane_d_CSV
+#                        result ={
+#                            "status": "success",
+#                            "options": json.dumps(data),
+#                            "register": False,
+#                            "preivew": True
+#                        }
+
+                        response_json = json.dumps(data)
                         response.StatusCode = 200  # OK
                         response.ContentType = "application/json"
                         response.ContentLength64 = len(response_json)
