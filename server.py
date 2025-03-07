@@ -18,6 +18,7 @@ from Newtonsoft.Json import JsonConvert
 from System.Data.SQLite import SQLiteConnection
 from Rhino.FileIO import SerializationOptions
 import rhinoscriptsyntax as rs
+from System.Threading import ThreadPool, WaitCallback
 
 # using IronPython, set a websocket client
 clr.AddReference("WebsocketSharp.Core")
@@ -575,146 +576,140 @@ listener.Start()
 
 print("IronPython HTTP Server is running on http://192.168.1.101:5632/")
 
-try:
-    while True:
-        context = listener.GetContext()  # Wait for a request
-        request = context.Request
-        response = context.Response
-        response.AddHeader("Access-Control-Allow-Origin", "https://rhino_web.remosharp.com")
-        response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        response.AddHeader("Access-Control-Allow-Headers", "Content-Type")
-        
-        
-        # Handle preflight OPTIONS request
-        if request.HttpMethod == "OPTIONS":
-            response.StatusCode = 200  # OK
-            response.ContentLength64 = 0
-            response.OutputStream.Close()
-            continue  # Skip the rest and wait for another request
-        
-        
-        # Check if it's a POST request
-        if request.HttpMethod == "POST":
-            try:
-                # Read and parse the JSON payload
-                reader = StreamReader(request.InputStream, request.ContentEncoding)
-                json_data = reader.ReadToEnd()
-                reader.Close()
-                data = json.loads(json_data)  # Parse JSON
-                # print("Received JSON:", data)
-                stop_server = data["stop_server"] if "stop_server" in data else []
-                
-                
-                
-                if stop_server == "akhajsourcereposSQLiteRhi":
-                    response.StatusCode = 200  # OK
-                    response.ContentLength64 = 0
-                    listener.Stop()
-                # Construct a response
-                message_type = data["type"]
-                db_path = r"C:\Projects\repos\SQLiteRhinoDBServer\bin\Debug\GHDB.db"
-                if (message_type == "bridge"):
-                    
-                    designer = data["designer"]
-                    register = data["register"]
-                    color = sqlite_db.string_to_rgb(data["color"])
-                    
-                    
-                    if not register:
-                        # get many possible solutions
-                        # a range between -2.50 and 2.50
-                        plane_c, plane_d = process_bridge(
-                                        data["plane_01"],
-                                        data["plane_02"],
-                                        data["shift_ab"],
-                                        data["shift_a"],
-                                        data["shift_b"],
-                                        data["browse"],
-                                        data["only_valid"]
-                                        )
-                        
-                        plane_c_CSV = csv_from_plane(plane_c)
-                        plane_d_CSV = csv_from_plane(plane_d)
-
-                        data["plane_03"] = plane_c_CSV
-                        data["plane_04"] = plane_d_CSV
-#                        result ={
-#                            "status": "success",
-#                            "options": json.dumps(data),
-#                            "register": False,
-#                            "preivew": True
-#                        }
-
-                        response_json = json.dumps(data)
-                        response.StatusCode = 200  # OK
-                        response.ContentType = "application/json"
-                        response.ContentLength64 = len(response_json)
-                        writer = StreamWriter(response.OutputStream)
-                        
-                        writer.Write(response_json)
-                        writer.Flush()
-                        response.OutputStream.Close()
-                    else:
-                        plane_c, plane_d = process_bridge(data["plane-01"], data["plane-02"], data["shift_ab"], data["shift_a"], data["shift_b"],data["browse"],data["only_valid"])
-                        
-                        color = sqlite_db.string_to_rgb(data["color"])
-                        
-                        
-                        if sqlite_db.db_exists(db_path and register):
-                            branch1 = TimberBranch(placement_plane=plane_c , user=designer, color=color, state="virtual", branch=None, parentIDs=[])
-                            branch2 = TimberBranch(placement_plane=plane_d , user=designer, color=color, state="virtual", branch=None, parentIDs=[])
-                            sqlite_db.save_stick_to_db(True,[branch1,branch2],db_path)
-                    
-                        result ={
-                            "status": "success",
-                            "plane_01": csv_from_plane(plane_c),
-                            "plane_02": csv_from_plane(plane_d),
-                        }
-                        
-                        response_json = json.dumps(result)
-                        response.StatusCode = 200  # OK
-                        response.ContentType = "application/json"
-                        response.ContentLength64 = len(response_json)
-                        writer = StreamWriter(response.OutputStream)
-                        
-                        writer.Write(response_json)
-                        writer.Flush()
-                        response.OutputStream.Close()
-                        
-                        if register:
-                            ws.Send("update_all")
-                    
-                else:
-                    plane = sqlite_db.string_to_plane(data["placementPlane"])
-                    designer = data["designer"]
-                    color = sqlite_db.string_to_rgb(data["color"])
-                    parentID = data["parentID"]
-                    
+def MakeBranchFromData(data,db_path):
+    plane = sqlite_db.string_to_plane(data["placementPlane"])
+    designer = data["designer"]
+    color = sqlite_db.string_to_rgb(data["color"])
+    parentID = data["parentID"]
     
+    
+    
+    if sqlite_db.db_exists(db_path):
+        # get the parent branch
+        parent_plane = sqlite_db.get_placement_with_id(db_path,parentID)
+        
+        # get the proper plane for the parent branch
+        # proper_plane = get_proper_plane_for_point(plane, parent_plane,18)
+#                    proper_plane = get_proper_plane_from_quaternion(data["q_x"],data["q_y"],data["q_z"],data["q_w"],data["p_x"],data["p_y"],data["p_z"])
+        
+        proper_plane = get_proper_plane_aligned(parent_plane, plane,18)
+        
+        
+        branch = TimberBranch(placement_plane=proper_plane , user=designer, color=color, state="virtual", branch=None, parentIDs=[parentID])
+        branch.ID = data["ID"]
+        return branch
+
+def MakeBridgeFromData(data,db_path):
+    plane_01 = sqlite_db.string_to_plane(data["plane_03"])
+    plane_02 = sqlite_db.string_to_plane(data["plane_04"])
+    designer = data["designer"]
+    color = sqlite_db.string_to_rgb(data["color"])
+    parentID_01 = data["parent_ID_01"]
+    parentID_02 = data["parent_ID_02"]
+    
+    
+    
+    if sqlite_db.db_exists(db_path):
+        # get the parent branch
+        parent_plane_01 = sqlite_db.get_placement_with_id(db_path,parentID_01)
+        parent_plane_02 = sqlite_db.get_placement_with_id(db_path,parentID_02)
+        
+        # get the proper plane for the parent branch
+        # proper_plane = get_proper_plane_for_point(plane, parent_plane,18)
+#                    proper_plane = get_proper_plane_from_quaternion(data["q_x"],data["q_y"],data["q_z"],data["q_w"],data["p_x"],data["p_y"],data["p_z"])
+        
+        proper_plane_01 = get_proper_plane_aligned(parent_plane_01, plane_01,18)
+        proper_plane_02 = get_proper_plane_aligned(parent_plane_02, plane_02,18)
+        
+        
+        branch_01 = TimberBranch(placement_plane=plane_01 , user=designer, color=color, state="virtual", branch=None, parentIDs=[parentID_01])
+        branch_02 = TimberBranch(placement_plane=plane_02 , user=designer, color=color, state="virtual", branch=None, parentIDs=[parentID_02])
+        branch_01.ID = data["ID_01"]
+        branch_02.ID = data["ID_02"]
+        return [branch_01,branch_02]
+
+def process_message(context):
+    request = context.Request
+    response = context.Response
+    response.AddHeader("Access-Control-Allow-Origin", "https://rhino_web.remosharp.com")
+    response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    response.AddHeader("Access-Control-Allow-Headers", "Content-Type")
+    
+    
+    # Handle preflight OPTIONS request
+    if request.HttpMethod == "OPTIONS":
+        response.StatusCode = 200  # OK
+        response.ContentLength64 = 0
+        response.OutputStream.Close()
+        return  # Skip the rest and wait for another request
+    
+    
+    # Check if it's a POST request
+    if request.HttpMethod == "POST":
+        try:
+            # Read and parse the JSON payload
+            reader = StreamReader(request.InputStream, request.ContentEncoding)
+            json_data = reader.ReadToEnd()
+            reader.Close()
+            data = json.loads(json_data)  # Parse JSON
+            # print("Received JSON:", data)
+            stop_server = data["stop_server"] if "stop_server" in data else []
+            
+            
+            
+            if stop_server == "akhajsourcereposSQLiteRhi":
+                response.StatusCode = 200  # OK
+                response.ContentLength64 = 0
+                listener.Stop()
+                return
+            # Construct a response
+            message_type = data["type"]
+            db_path = r"C:\Projects\repos\SQLiteRhinoDBServer\bin\Debug\GHDB.db"
+            if (message_type == "BridgeRequest"):
+                
+                designer = data["designer"]
+                register = data["register"]
+                color = sqlite_db.string_to_rgb(data["color"])
+                
+                
+                if not register:
+                    # get many possible solutions
+                    # a range between -2.50 and 2.50
+                    plane_c, plane_d = process_bridge(
+                                    data["plane_01"],
+                                    data["plane_02"],
+                                    data["shift_ab"],
+                                    data["shift_a"],
+                                    data["shift_b"],
+                                    data["browse"],
+                                    data["only_valid"]
+                                    )
                     
+                    plane_c_CSV = csv_from_plane(plane_c)
+                    plane_d_CSV = csv_from_plane(plane_d)
                     
-                    if sqlite_db.db_exists(db_path):
-                        # get the parent branch
-                        parent_plane = sqlite_db.get_placement_with_id(db_path,parentID)
-                        
-                        # get the proper plane for the parent branch
-                        # proper_plane = get_proper_plane_for_point(plane, parent_plane,18)
-    #                    proper_plane = get_proper_plane_from_quaternion(data["q_x"],data["q_y"],data["q_z"],data["q_w"],data["p_x"],data["p_y"],data["p_z"])
-                        
-                        proper_plane = get_proper_plane_aligned(parent_plane, plane,18)
-                        
-                        
-                        branch = TimberBranch(placement_plane=proper_plane , user=designer, color=color, state="virtual", branch=None, parentIDs=[parentID])
-                        branch.ID = data["ID"]
-                        dics = "temp"
-                        sqlite_db.save_stick_to_db(True,[branch],db_path)
+                    data["plane_03"] = plane_c_CSV
+                    data["plane_04"] = plane_d_CSV
+                    
+                    response_json = json.dumps(data)
+                    response.StatusCode = 200  # OK
+                    response.ContentType = "application/json"
+                    response.ContentLength64 = len(response_json)
+                    writer = StreamWriter(response.OutputStream)
+                    
+                    writer.Write(response_json)
+                    writer.Flush()
+                    response.OutputStream.Close()
+                else:
+                    
+                    bridge = MakeBridgeFromData(data,db_path)
+                    sqlite_db.save_stick_to_db(True,bridge,db_path)
                     
                     
                     # Send response
                     result ={
                         "status": "success",
-                        "message": "Branch created successfully",
-                        "branch_id": branch.ID.ToString()
+                        "message": "bridge created successfully"
                     }
                     
                     response_json = json.dumps(result)
@@ -728,24 +723,76 @@ try:
                     response.OutputStream.Close()
                     
                     ws.Send("update_all")
+            else:
+                plane = sqlite_db.string_to_plane(data["placementPlane"])
+                designer = data["designer"]
+                color = sqlite_db.string_to_rgb(data["color"])
+                parentID = data["parentID"]
+                
 
-            except Exception as e:
-                # Handle JSON errors
-                error_response = {"status": "error", "message": str(e)}
-                response_json = json.dumps(error_response)
-                response.StatusCode = 400  # Bad request
+                
+                
+                if sqlite_db.db_exists(db_path):
+                    # get the parent branch
+                    parent_plane = sqlite_db.get_placement_with_id(db_path,parentID)
+                    
+                    # get the proper plane for the parent branch
+                    # proper_plane = get_proper_plane_for_point(plane, parent_plane,18)
+#                    proper_plane = get_proper_plane_from_quaternion(data["q_x"],data["q_y"],data["q_z"],data["q_w"],data["p_x"],data["p_y"],data["p_z"])
+                    
+                    proper_plane = get_proper_plane_aligned(parent_plane, plane,18)
+                    
+                    
+                    branch = TimberBranch(placement_plane=proper_plane , user=designer, color=color, state="virtual", branch=None, parentIDs=[parentID])
+                    branch.ID = data["ID"]
+                    dics = "temp"
+                    sqlite_db.save_stick_to_db(True,[branch],db_path)
+                
+                
+                # Send response
+                result ={
+                    "status": "success",
+                    "message": "Branch created successfully",
+                    "branch_id": branch.ID.ToString()
+                }
+                
+                response_json = json.dumps(result)
+                response.StatusCode = 200  # OK
                 response.ContentType = "application/json"
                 response.ContentLength64 = len(response_json)
                 writer = StreamWriter(response.OutputStream)
+                
                 writer.Write(response_json)
                 writer.Flush()
                 response.OutputStream.Close()
+                
+                ws.Send("update_all")
 
-        else:
-            # Handle unsupported request methods
-            response.StatusCode = 405  # Method Not Allowed
-            response.ContentLength64 = 0
+        except Exception as e:
+            # Handle JSON errors
+            error_response = {"status": "error", "message": str(e)}
+            response_json = json.dumps(error_response)
+            response.StatusCode = 400  # Bad request
+            response.ContentType = "application/json"
+            response.ContentLength64 = len(response_json)
+            writer = StreamWriter(response.OutputStream)
+            writer.Write(response_json)
+            writer.Flush()
             response.OutputStream.Close()
+
+    else:
+        # Handle unsupported request methods
+        response.StatusCode = 405  # Method Not Allowed
+        response.ContentLength64 = 0
+        response.OutputStream.Close()
+
+
+
+
+try:
+    while True:
+        context = listener.GetContext()  # Wait for a request
+        ThreadPool.QueueUserWorkItem(WaitCallback(process_message), context)
     listener.Stop()
 
 except KeyboardInterrupt:
