@@ -631,7 +631,7 @@ def MakeBridgeFromData(data,db_path):
 def process_message(context):
     request = context.Request
     response = context.Response
-    response.AddHeader("Access-Control-Allow-Origin", "https://rhino_web.remosharp.com")
+    response.AddHeader("Access-Control-Allow-Origin", "https://bonsai.remosharp.com")
     response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     response.AddHeader("Access-Control-Allow-Headers", "Content-Type")
     
