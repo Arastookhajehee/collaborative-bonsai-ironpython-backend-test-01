@@ -24,6 +24,9 @@ from System.Threading import ThreadPool, WaitCallback
 clr.AddReference("WebsocketSharp.Core")
 from WebSocketSharp import WebSocket
 
+# Create a WebSocket client
+ws = WebSocket("ws://127.0.0.1:12541/")  # replace with your WebSocket server URL
+
 # Define event handlers
 def on_open(sender, e):
     print("Connected to the server.")
@@ -346,8 +349,7 @@ def process_bridge(branch_a_csv, branch_b_csv, shift_ab= -4.95, shift_a = 0.146,
     return plane_c, plane_d
 
 
-# Create a WebSocket client
-ws = WebSocket("ws://127.0.0.1:12541/")  # replace with your WebSocket server URL
+
 
 # Hook up the event handlers
 ws.OnOpen += on_open
@@ -369,7 +371,27 @@ from TimberBranch import TimberBranch
 
 
 
+def send_data_to_websocket(ws_client, id, width, length, thickness, placement_plane,
+                                 duplicate_plane, orientable_planes, mesh_box, user, color, state,
+                                 parent_ids, child_ids, selected, build_on_plane, message,
+                                 design_time_stamp, modification_time_stamp, physical_time_stamp,
+                                 fabricated_time_stamp, fabrication_fail, placement_glue_shift,
+                                 placement_shift, designer):
+    data = {
+        "type": "InsertData",
+        "ID": id, "width": width, "length": length, "thickness": thickness,
+        "placementPlane": placement_plane, "duplicatePlane": duplicate_plane,
+        "orientablePlanes": orientable_planes, "meshBox": mesh_box, "user": user,
+        "color": color, "state": state, "parentIDs": parent_ids, "childIDs": child_ids,
+        "selected": selected, "buildOnPlane": build_on_plane, "message": message,
+        "designTimeStamp": design_time_stamp, "modificationTimeStamp": modification_time_stamp,
+        "physicalTimeStamp": physical_time_stamp, "fabricatedTimeStamp": fabricated_time_stamp,
+        "fabricationFail": fabrication_fail, "placementGlueShift": placement_glue_shift,
+        "placementShift": placement_shift, "designer": designer
+    }
 
+    ws_client.Send(json.dumps(data))
+    print("Data sent to WebSocket server.")
 
 
 
@@ -381,8 +403,8 @@ class sqlite_db:
     
     @staticmethod
     def save_stick_to_db(save, t_branch, db_path):
-        connection = SQLiteConnection("Data Source='{}';Version=3;".format(db_path))
-        connection.Open()
+        # connection = SQLiteConnection("Data Source='{}';Version=3;".format(db_path))
+        # connection.Open()
         
         new_meshes = []
         
@@ -401,15 +423,15 @@ class sqlite_db:
             new_meshes.append(new_ms_box)
             
             if save:
-                sqlite_db.insert_data(
-                    connection, str(s.ID), s.width, s.length, s.thickness,
+                send_data_to_websocket(
+                    ws, str(s.ID), s.width, s.length, s.thickness,
                     sqlite_db.plane_to_string(s.placementPlane), sqlite_db.plane_to_string(s.placementPlane), "",
                     new_ms_box.ToJSON(op), s.user, sqlite_db.rgb_to_string(s.color), s.state, "", "",
                     s.selected, sqlite_db.plane_to_string(s.buildOnPlane), s.message, s.designTimeStamp,
                     s.modificationTimeStamp, s.physicalTimeStamp, s.fabricatedTimeStamp,
                     s.fabricationFail, s.placementGlueShift, s.placementShift, s.user
                 )
-        connection.Close()
+        # connection.Close()
     
     @staticmethod
     def plane_to_string(plane):
