@@ -664,7 +664,7 @@ def process_message(context):
                 return
             # Construct a response
             message_type = data["type"]
-            db_path = r"C:\Projects\repos\SQLiteRhinoDBServer\bin\Debug\GHDB.db"
+            db_path = r"D:\Projects\source\repos\collaborative-bonsai-node-backend-test-01\Bonsai.db"
             if (message_type == "BridgeRequest"):
                 
                 designer = data["designer"]
